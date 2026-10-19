@@ -52,6 +52,7 @@ AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "")
 
 AWS_S3_BUCKET = os.getenv("AWS_S3_BUCKET", "comply-core-uat")
+S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL", "").strip() or None
 
 # ── LinkedIn / Apify ─────────────────────────────────
 APIFY_API_TOKEN = os.getenv("APIFY_API_TOKEN")

@@ -2,36 +2,33 @@
 
 Measures end-to-end document throughput: **upload → Celery → Docling → pipeline (stub LLM in UAT) → Postgres**.
 
-## EC2 worker capacity (no auth, supplied PDF, or loadtest `.env`)
+## EC2 worker capacity (fully local; no secrets, auth, or supplied PDF)
 
-Use this mode when the goal is to measure document-analysis worker capacity on the **already configured, non-production EC2 stack**. It dispatches synthetic documents directly to Celery, so it does not measure API upload/auth capacity.
+Use this mode to measure document-analysis worker capacity on EC2. It runs an isolated test stack containing PostgreSQL, Redis, MinIO (local S3-compatible storage), and a worker. It does not use the normal application stack, AWS resources, credentials, API auth, a `loadtest/.env`, or a supplied PDF. It does not measure HTTP upload/auth capacity.
 
-The runner generates a small PDF itself, creates temporary document records and S3 objects using the stack's existing database/storage configuration, waits for analysis to finish, then removes the test data. It selects an active organization/member automatically; it does not need an API token, UAT URL, user login, `loadtest/.env`, or a PDF fixture.
-
-Set `APP_ENV` explicitly to a non-production value in `AI Compliance/.env.docker` if it is not already set. The load-test stub refuses `production`. The existing app stack and its DB/S3 configuration must already be running.
+The runner initializes a fresh local test database, creates a synthetic test organization/member and a small PDF, uploads it to the local MinIO container, and dispatches analysis directly to Celery. The LLM stub is always enabled and uses a fixed 1.5-second delay per call. On successful completion, generated rows, local S3 objects, and the isolated stack are removed; the JSON report remains under `loadtest/reports/`.
 
 From the repo root on EC2:
 
 ```bash
-# Defaults to 2, 4, 6, and 8 documents dispatched together (12-minute pass limit per step).
+# Defaults to 2, 4, 6, and 8 documents dispatched together.
 bash loadtest/run_worker_capacity.sh
 
 # Or choose batch sizes:
 bash loadtest/run_worker_capacity.sh 2 4 6 8 10
 ```
 
-The script temporarily recreates the existing worker with the fake LLM enabled, leaves it running during the test, and restores its normal Compose environment after successful completion. This brief restart is required for the worker process to load the stub setting. Results are written to `loadtest/reports/worker-capacity-<run-id>.json`.
+No `.env` file or pre-existing application/database/S3 stack is required. Docker and Compose are the only host prerequisites. The test uses the existing worker Dockerfile, with the fake LLM guaranteed on for the isolated worker. Results are written to `loadtest/reports/worker-capacity-<run-id>.json`.
 
-If the run exits nonzero, the script deliberately skips restoring the worker to avoid queued tasks switching to a real provider. Check that the Celery queue has drained, then remove any retained synthetic data and restore the worker:
+If the run exits nonzero, the isolated services are left running, and there are no real-provider credentials configured. Inspect the run ID and worker logs, wait for any queued jobs to finish, then remove the test data and isolated containers:
 
 ```bash
-docker compose --profile worker-loadtest -f docker-compose.yml -f docker-compose.worker-loadtest.yml \
-  run --rm --no-deps worker-capacity \
-  --cleanup-run-id <run-id-from-output>
-docker compose up -d --no-deps --force-recreate worker
+docker compose -f docker-compose.worker-loadtest.yml run --rm worker-capacity \
+  python /loadtest/worker_capacity.py --cleanup-run-id <run-id>
+docker compose -f docker-compose.worker-loadtest.yml down
 ```
 
-Do not run this against production. It exercises document analysis and its LLM stub, not HTTP uploads, authentication, or the upload-time classification task.
+This isolated stack is independent of production data. It exercises document analysis and its LLM stub, not HTTP uploads, authentication, or the upload-time classification task.
 
 ## 1. Enable stub LLM on UAT worker only
 

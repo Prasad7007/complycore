@@ -13,7 +13,11 @@ s3_client = boto3.client(
     aws_access_key_id=config.AWS_ACCESS_KEY_ID,
     aws_secret_access_key=config.AWS_SECRET_ACCESS_KEY,
     region_name=config.AWS_REGION,
-    config=Config(signature_version="s3v4")
+    endpoint_url=config.S3_ENDPOINT_URL,
+    config=Config(
+        signature_version="s3v4",
+        s3={"addressing_style": "path"} if config.S3_ENDPOINT_URL else {},
+    ),
 )
 
 def _put_linkedin_post(base_prefix: str, json_data: dict, media_files: list[tuple[str, bytes]]) -> None:

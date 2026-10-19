@@ -77,22 +77,60 @@ def _synthetic_pdf() -> bytes:
         document.close()
 
 
-async def _select_test_owner(pool: asyncpg.Pool) -> tuple[uuid.UUID, uuid.UUID]:
+async def _create_test_owner(
+    pool: asyncpg.Pool,
+    run_id: str,
+) -> tuple[uuid.UUID, uuid.UUID]:
+    organization_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    created_at = datetime.now(timezone.utc).replace(tzinfo=None)
     async with pool.acquire() as db:
-        row = await db.fetchrow(
-            """
-            SELECT o.id AS organization_id, u.id AS user_id
-            FROM organizations o
-            JOIN organization_users ou ON ou.organization_id = o.id
-            JOIN user_profiles u ON u.id = ou.user_id
-            WHERE o.status = 'active' AND u.is_active IS TRUE
-            ORDER BY o.created_at, o.id
-            LIMIT 1
-            """
-        )
-    if not row:
-        raise RuntimeError("No active organization with an active member exists for load-test records.")
-    return row["organization_id"], row["user_id"]
+        async with db.transaction():
+            await db.execute(
+                """
+                INSERT INTO organizations (id, name, slug, status, created_at, updated_at)
+                VALUES ($1, $2, $3, 'active', $4, $4)
+                """,
+                organization_id,
+                f"Worker capacity test {run_id[:8]}",
+                f"loadtest-{run_id}",
+                created_at,
+            )
+            await db.execute(
+                """
+                INSERT INTO user_profiles (id, cognito_sub, email, full_name, is_active, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, TRUE, $5, $5)
+                """,
+                user_id,
+                f"loadtest:{run_id}",
+                f"loadtest-{run_id}@invalid.example",
+                f"Worker Load Test {run_id[:8]}",
+                created_at,
+            )
+            await db.execute(
+                """
+                INSERT INTO organization_users (id, organization_id, user_id, role_in_org, is_owner, created_at)
+                VALUES ($1, $2, $3, 'marketing', TRUE, $4)
+                """,
+                uuid.uuid4(),
+                organization_id,
+                user_id,
+                created_at,
+            )
+            role_id = await db.fetchval("SELECT id FROM roles WHERE name = 'marketing'")
+            if not role_id:
+                raise RuntimeError("Marketing role is missing; initialize and seed the test database first.")
+            await db.execute(
+                """
+                INSERT INTO user_roles (id, user_id, role_id, assigned_at)
+                VALUES ($1, $2, $3, $4)
+                """,
+                uuid.uuid4(),
+                user_id,
+                role_id,
+                created_at,
+            )
+    return organization_id, user_id
 
 
 async def _create_batch(
@@ -370,14 +408,24 @@ def _step_summary(step: int, docs: list[dict[str, Any]], elapsed: float, within_
     }
 
 
-async def _cleanup(pool: asyncpg.Pool, docs: list[dict[str, Any]], bucket: str) -> None:
-    if not docs:
-        return
-    ids = [doc["id"] for doc in docs]
+async def _cleanup(
+    pool: asyncpg.Pool,
+    docs: list[dict[str, Any]],
+    bucket: str,
+    run_id: str,
+) -> None:
     keys = [doc["key"] for doc in docs]
-    await _delete_s3_keys(bucket, keys)
+    if keys:
+        await _delete_s3_keys(bucket, keys)
     async with pool.acquire() as db:
-        await db.execute("DELETE FROM documents WHERE id = ANY($1::uuid[])", ids)
+        if docs:
+            ids = [doc["id"] for doc in docs]
+            await db.execute("DELETE FROM documents WHERE id = ANY($1::uuid[])", ids)
+        await db.execute("DELETE FROM organizations WHERE slug = $1", f"loadtest-{run_id}")
+        await db.execute(
+            "DELETE FROM user_profiles WHERE cognito_sub = $1",
+            f"loadtest:{run_id}",
+        )
 
 
 async def _cleanup_run(pool: asyncpg.Pool, run_id: str) -> None:
@@ -394,9 +442,6 @@ async def _cleanup_run(pool: asyncpg.Pool, run_id: str) -> None:
             """,
             f"LT-{run_id}-%",
         )
-        if not rows:
-            print(f"No synthetic records found for run_id={run_id}.", flush=True)
-            return
     keys_by_bucket: dict[str, list[str]] = {}
     for row in rows:
         if row["s3_bucket"] and row["s3_key"]:
@@ -404,8 +449,11 @@ async def _cleanup_run(pool: asyncpg.Pool, run_id: str) -> None:
     for bucket, keys in keys_by_bucket.items():
         await _delete_s3_keys(bucket, keys)
     async with pool.acquire() as db:
-        await db.execute("DELETE FROM documents WHERE id = ANY($1::uuid[])", [row["id"] for row in rows])
-    print(f"Removed {len(rows)} synthetic document(s) for run_id={run_id}.", flush=True)
+        if rows:
+            await db.execute("DELETE FROM documents WHERE id = ANY($1::uuid[])", [row["id"] for row in rows])
+        await db.execute("DELETE FROM organizations WHERE slug = $1", f"loadtest-{run_id}")
+        await db.execute("DELETE FROM user_profiles WHERE cognito_sub = $1", f"loadtest:{run_id}")
+    print(f"Removed {len(rows)} synthetic document(s) and test identity for run_id={run_id}.", flush=True)
 
 
 async def _run(args: argparse.Namespace) -> int:
@@ -431,19 +479,19 @@ async def _run(args: argparse.Namespace) -> int:
         return 0
 
     run_id = uuid.uuid4().hex
+    print(
+        f"Worker-only load test run_id={run_id}; no HTTP, token, or supplied PDF. "
+        f"Stub delay=1.5s per LLM call; batch steps={args.steps}",
+        flush=True,
+    )
     all_docs: list[dict[str, Any]] = []
     summaries: list[dict[str, Any]] = []
     capacity = None
     exceeded = False
     bucket = (ai_config.AWS_S3_BUCKET or "").strip()
     try:
-        organization_id, user_id = await _select_test_owner(pool)
+        organization_id, user_id = await _create_test_owner(pool, run_id)
         pdf_bytes = _synthetic_pdf()
-        print(
-            f"Worker-only load test run_id={run_id}; no HTTP, token, or supplied PDF. "
-            f"Stub delay=1.5s per LLM call; batch steps={args.steps}",
-            flush=True,
-        )
 
         next_index = 1
         for step in args.steps:
@@ -538,7 +586,7 @@ async def _run(args: argparse.Namespace) -> int:
             "max_stable_concurrent_docs": capacity,
             "steps": summaries,
         }
-        await _cleanup(pool, all_docs, bucket)
+        await _cleanup(pool, all_docs, bucket, run_id)
         report["cleanup"] = "synthetic database rows and S3 files removed"
         REPORT_DIR.mkdir(parents=True, exist_ok=True)
         report_path = REPORT_DIR / f"worker-capacity-{run_id}.json"

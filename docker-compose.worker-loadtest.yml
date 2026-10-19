@@ -1,25 +1,104 @@
-# Worker-only capacity benchmark. This override keeps the normal Locust compose
-# profile independent and enables the fake LLM only for an explicit benchmark run.
+# Fully local worker-capacity stack: no API auth, RDS, AWS S3, or loadtest .env.
 services:
-  worker:
+  loadtest-db:
+    image: postgres:16-alpine
     environment:
+      POSTGRES_DB: complycore_loadtest
+      POSTGRES_USER: loadtest
+      POSTGRES_PASSWORD: loadtest-only-password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U loadtest -d complycore_loadtest"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  loadtest-redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  loadtest-minio:
+    image: minio/minio:latest
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: loadtest-access-key
+      MINIO_ROOT_PASSWORD: local-loadtest-only-secret
+
+  loadtest-minio-init:
+    image: minio/mc:latest
+    depends_on:
+      loadtest-minio:
+        condition: service_started
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        until mc alias set local http://loadtest-minio:9000
+        loadtest-access-key local-loadtest-only-secret; do sleep 2; done &&
+        mc mb --ignore-existing local/complycore-loadtest
+
+  loadtest-worker:
+    build:
+      context: "./AI Compliance"
+      dockerfile: Dockerfile.worker
+    environment:
+      APP_ENV: loadtest
+      DATABASE_URL: postgresql://loadtest:loadtest-only-password@loadtest-db:5432/complycore_loadtest
+      REDIS_URL: redis://loadtest-redis:6379/0
+      AWS_ACCESS_KEY_ID: loadtest-access-key
+      AWS_SECRET_ACCESS_KEY: local-loadtest-only-secret
+      AWS_REGION: us-east-1
+      AWS_S3_BUCKET: complycore-loadtest
+      S3_ENDPOINT_URL: http://loadtest-minio:9000
       LOAD_TEST_STUB_LLM: "true"
       LOAD_TEST_STUB_LLM_DELAY_SEC: "1.5"
+      CELERY_MAX_TASKS_PER_CHILD: "10"
+      CELERY_VISIBILITY_TIMEOUT: "3600"
+    depends_on:
+      loadtest-db:
+        condition: service_healthy
+      loadtest-redis:
+        condition: service_healthy
+      loadtest-minio-init:
+        condition: service_completed_successfully
+    command:
+      - python
+      - -m
+      - celery
+      - -A
+      - apis.services.celery_app
+      - worker
+      - --loglevel=info
+      - --concurrency=2
+    mem_limit: 6g
 
   worker-capacity:
     build:
       context: "./AI Compliance"
       dockerfile: Dockerfile.worker
-    env_file:
-      - "./AI Compliance/.env.docker"
     environment:
+      APP_ENV: loadtest
+      DATABASE_URL: postgresql://loadtest:loadtest-only-password@loadtest-db:5432/complycore_loadtest
+      REDIS_URL: redis://loadtest-redis:6379/0
+      AWS_ACCESS_KEY_ID: loadtest-access-key
+      AWS_SECRET_ACCESS_KEY: local-loadtest-only-secret
+      AWS_REGION: us-east-1
+      AWS_S3_BUCKET: complycore-loadtest
+      S3_ENDPOINT_URL: http://loadtest-minio:9000
       LOAD_TEST_STUB_LLM: "true"
       LOAD_TEST_STUB_LLM_DELAY_SEC: "1.5"
+    depends_on:
+      loadtest-db:
+        condition: service_healthy
+      loadtest-redis:
+        condition: service_healthy
+      loadtest-minio-init:
+        condition: service_completed_successfully
     volumes:
       - ./loadtest/worker_capacity.py:/loadtest/worker_capacity.py:ro
       - ./loadtest/reports:/loadtest/reports
-    profiles:
-      - worker-loadtest
-    entrypoint:
+    command:
       - python
       - /loadtest/worker_capacity.py

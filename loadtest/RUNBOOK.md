@@ -2,19 +2,21 @@
 
 Run all commands from the **repo root**: `~/compliance_ai`
 
-## Worker-only benchmark (no token or supplied PDF)
+## Standalone worker-only benchmark (no credentials, token, or supplied PDF)
 
-For an EC2 worker-capacity test that does not call the HTTP API, use:
+For an isolated EC2 worker-capacity test that does not call the HTTP API or use AWS services, run from the repository root:
 
 ```bash
 bash loadtest/run_worker_capacity.sh
 ```
 
-It generates its own small PDF, selects an active organization/member from the configured DB, inserts temporary test records, dispatches analysis tasks directly to Celery, and removes the records and S3 objects after the tasks drain. No API token, UAT URL, `loadtest/.env`, or user-supplied PDF is needed. The existing stack's database and S3 configuration are still required.
+It starts temporary local PostgreSQL, Redis, MinIO, and a Celery worker; applies migrations and seed data; generates a small PDF; creates synthetic document records; and dispatches analysis tasks directly to Celery. The LLM stub is enabled with a fixed 1.5-second per-call delay. Successful runs remove synthetic rows and local objects, stop the isolated services, and leave the JSON report in `loadtest/reports/`.
 
-`APP_ENV` must be explicitly set to a non-production value in `AI Compliance/.env.docker`; production is refused. The script briefly recreates the worker with the fake LLM enabled, keeps it running through the benchmark, and restores normal Compose configuration after a successful run. Defaults are batch sizes `2 4 6 8`, 12 minutes per step, and 1.5 seconds per stub LLM call. Pass custom batch sizes as arguments, e.g. `bash loadtest/run_worker_capacity.sh 2 4 6 8 10`.
+No app `.env`, UAT token, external database, S3 bucket, or PDF fixture is needed. Docker and Compose are the only host requirements. Defaults test batch sizes `2 4 6 8`, with a 12-minute pass limit and up to a 60-minute drain period per step. Pass custom batch sizes as arguments, e.g. `bash loadtest/run_worker_capacity.sh 2 4 6 8 10`.
 
-The test reports the largest batch size that completed successfully within the step limit. This is **worker/document-analysis capacity only**; it does not measure upload/API/auth throughput. See `loadtest/README.md` for recovery instructions if the runner exits nonzero.
+The report gives the largest batch size that completed successfully within the step limit and documents/hour observed. This is **worker/document-analysis capacity only**; it does not measure upload/API/auth throughput. If interrupted or failed, the isolated services remain available for inspection; wait for queued tasks to drain, then use the run-ID cleanup and `docker compose -f docker-compose.worker-loadtest.yml down` commands in `loadtest/README.md`.
+
+## Existing Locust/UAT end-to-end test
 
 **Prerequisites**
 
