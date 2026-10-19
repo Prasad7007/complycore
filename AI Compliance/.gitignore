@@ -1,0 +1,71 @@
+# Environment & secrets
+.env
+.env.*
+!.env.example
+.venv
+venv/
+env/
+aienv/
+/aienv
+
+# Python
+__pycache__/
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+.eggs/
+dist/
+build/
+pip-wheel-metadata/
+.pydeps/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.hypothesis/
+
+# Terraform (keep lock optional — uncomment to ignore)
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+
+# Logs & temp
+*.log
+logs/
+tmp/
+temp/
+*.tmp
+*.bak
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editors / IDEs
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# Local databases (if used for dev)
+*.db
+*.sqlite
+*.sqlite3

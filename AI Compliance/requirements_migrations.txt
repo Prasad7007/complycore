@@ -1,0 +1,6 @@
+# Migration tooling only — not installed in API or worker images.
+# Install locally or in a CI migration step:
+#   pip install -r requirements_migrations.txt
+alembic>=1.13.0
+psycopg2-binary>=2.9.0
+python-dotenv>=1.0.0

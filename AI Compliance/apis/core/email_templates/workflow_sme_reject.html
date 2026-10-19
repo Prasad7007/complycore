@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+
+{% block content %}
+<p style="margin:0 0 12px;font-size:14px;color:{{ brand.body }};line-height:1.6;"><b>{{ actor_name }}</b> rejected <b>{{ document_name }}</b> at SME review.</p>
+{% if reviewer_note %}
+{{ m.quote_block(brand, reviewer_note, tone) }}
+{% endif %}
+<p style="margin:14px 0 0;">{{ m.pill(brand, "Rejected", tone) }}</p>
+{% endblock %}
+
+{% block after_content %}
+{{ m.cta_button(brand, cta_label, document_url, tone) }}
+{% endblock %}

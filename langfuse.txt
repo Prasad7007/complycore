@@ -1,0 +1,5 @@
+docker compose --env-file .env.langfuse -f docker-compose.langfuse.yml down
+
+
+6. When done
+Remove stub lines from .env.docker → docker compose up -d --force-recreate worker.

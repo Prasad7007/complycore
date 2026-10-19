@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+
+{% block content %}
+<p style="margin:0 0 12px;font-size:14px;color:{{ brand.body }};line-height:1.6;"><b>{{ actor_name }}</b> mentioned you on <b>{{ document_name }}</b>.</p>
+{% if comment_excerpt %}
+{{ m.quote_block(brand, comment_excerpt, tone) }}
+{% endif %}
+{% endblock %}
+
+{% block after_content %}
+{{ m.cta_button(brand, cta_label, comment_url, tone) }}
+{% endblock %}

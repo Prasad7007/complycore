@@ -1,0 +1,16 @@
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+ignore = [
+    "F401", # Unused import
+    "E702", # Multiple statements on one line (semicolon)
+    "F821", # Undefined name
+    "F841", # Unused variable
+    "E722", # Bare except
+    "F541", # f-string without placeholders
+    "E402", # Module level import not at top of file
+    "F811", # Redefined while unused
+    "E701", # Multiple statements on one line (colon)
+    "E741", # Ambiguous variable name
+]

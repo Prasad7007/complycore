@@ -1,0 +1,24 @@
+{
+  "generated_at_utc": "2026-10-13T05:59:04.252638+00:00",
+  "uat_base_url": "http://127.0.0.1:8052/api/v1",
+  "org_slug": "etai",
+  "configured_concurrent_users": 2,
+  "wall_clock_sec": 719.61,
+  "uploads_success": 2,
+  "uploads_failed": 0,
+  "analysis_completed": 0,
+  "analysis_failed": 0,
+  "analysis_timeout": 0,
+  "analysis_in_flight_at_stop": 2,
+  "analysis_finished_total": 0,
+  "analysis_completion_rate_pct": null,
+  "analysis_duration_sec_p50": null,
+  "analysis_duration_sec_p95": null,
+  "docs_per_hour_completed": null,
+  "locust_total_requests": 294,
+  "locust_fail_ratio": 0.017006802721088437,
+  "interpretation": {
+    "concurrent_scans": "Each Locust user = one upload + wait until scan completes (not passive browsing).",
+    "in_flight_at_stop": "Analyses still running when the run ended (--run-time or Ctrl+C); not counted as timeout unless the poll loop timed out."
+  }
+}

@@ -1,0 +1,68 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: ai-compliance-redis
+    restart: unless-stopped
+
+  api:
+    build:
+      context: "./AI Compliance"
+      dockerfile: Dockerfile.api
+    container_name: ai-compliance-api
+    env_file:
+      - "./AI Compliance/.env.docker"
+    ports:
+      - "8052:8052"
+    depends_on:
+      - redis
+    restart: unless-stopped
+    volumes:
+      - ./scripts:/app/scripts:ro
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8052/api/v1/health', timeout=5)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  worker:
+    build:
+      context: "./AI Compliance"
+      dockerfile: Dockerfile.worker
+    container_name: ai-compliance-worker
+    env_file:
+      - "./AI Compliance/.env.docker"
+    environment:
+      CELERY_MAX_TASKS_PER_CHILD: "10"
+      CELERY_VISIBILITY_TIMEOUT: "3600"
+    depends_on:
+      - redis
+    restart: unless-stopped
+    # Heavy memory allocation for AI workers
+    deploy:
+      resources:
+        limits:
+          memory: 6G
+        reservations:
+          memory: 4G
+
+  frontend:
+    build:
+      context: "./full-frontend"
+      dockerfile: Dockerfile
+    container_name: ai-compliance-frontend
+    depends_on:
+      - api
+    ports:
+      - "8054:80"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:80/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 5s

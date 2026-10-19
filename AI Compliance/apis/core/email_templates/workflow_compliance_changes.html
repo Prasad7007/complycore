@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+
+{% block content %}
+<p style="margin:0 0 12px;font-size:14px;color:{{ brand.body }};line-height:1.6;"><b>{{ actor_name }}</b> reviewed <b>{{ document_name }}</b> and requested changes before it can be published.</p>
+{% if reviewer_note %}
+{{ m.quote_block(brand, reviewer_note, tone) }}
+{% endif %}
+<p style="margin:14px 0 0;font-size:15px;">{{ m.workflow_step(brand, from_stage_label, to_stage_label) }}</p>
+{% endblock %}
+
+{% block after_content %}
+{{ m.cta_button(brand, cta_label, edit_url, tone) }}
+{% endblock %}

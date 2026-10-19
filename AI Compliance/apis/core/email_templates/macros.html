@@ -1,0 +1,70 @@
+{# ComplyCore email macros — match complycore-email-templates-final.html #}
+
+{% macro otp_box(brand, code, expires, warn, tone_name) %}
+  {% if tone_name == 'success' %}{% set tc, tbg, tbd = '#16a34a', '#f0fdf4', '#c6f0d2' %}
+  {% elif tone_name == 'danger' %}{% set tc, tbg, tbd = '#dc2626', '#fef2f2', '#f6d6d6' %}
+  {% elif tone_name == 'warn' %}{% set tc, tbg, tbd = '#d97a1f', '#fdf3e8', '#f3ddc2' %}
+  {% elif tone_name == 'info' %}{% set tc, tbg, tbd = '#2563eb', '#eff5ff', '#d8e6fd' %}
+  {% else %}{% set tc, tbg, tbd = '#6a3fd6', '#f0ecfb', '#e2d8f7' %}{% endif %}
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:18px 0 6px;">
+    <tr><td align="center" style="background:{{ tbg }};border:1px solid {{ tbd }};border-radius:12px;padding:18px 10px;">
+      <div style="font-family:{{ brand.font }};font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:{{ brand.muted }};margin-bottom:6px;">Your one-time code</div>
+      <div style="font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:34px;font-weight:700;letter-spacing:8px;color:{{ tc }};">{{ code }}</div>
+    </td></tr>
+  </table>
+  <p style="margin:12px 0 0;font-size:13px;color:{{ brand.muted }};">Expires in {{ expires }}.</p>
+  {% if warn %}
+  <p style="margin:10px 0 0;font-size:12.5px;color:{{ brand.body }};line-height:1.55;">{{ warn }}</p>
+  {% endif %}
+{% endmacro %}
+
+{% macro info_table(brand, rows) %}
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0 4px;border:1px solid {{ brand.line }};border-radius:10px;overflow:hidden;">
+    {% for row in rows %}
+    <tr>
+      <td style="padding:11px 14px;font-size:12px;color:{{ brand.muted }};width:42%;{% if not loop.first %}border-top:1px solid {{ brand.line }};{% endif %}">{{ row.label }}</td>
+      <td style="padding:11px 14px;font-size:13px;font-weight:600;color:{{ brand.ink }};{% if not loop.first %}border-top:1px solid {{ brand.line }};{% endif %}">{{ row.value|safe }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+{% endmacro %}
+
+{% macro cta_button(brand, label, href, tone_name=None, sub=None) %}
+  {% if tone_name == 'success' %}{% set btn = '#16a34a' %}
+  {% elif tone_name == 'danger' %}{% set btn = '#dc2626' %}
+  {% elif tone_name == 'warn' %}{% set btn = '#d97a1f' %}
+  {% elif tone_name == 'info' %}{% set btn = '#2563eb' %}
+  {% else %}{% set btn = brand.accent %}{% endif %}
+  <table role="presentation" cellpadding="0" cellspacing="0" style="margin:22px 0 4px;">
+    <tr><td style="border-radius:10px;background:{{ btn }};">
+      <a href="{{ href }}" style="display:inline-block;padding:12px 26px;font-family:{{ brand.font }};font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:10px;">{{ label }}</a>
+    </td></tr>
+  </table>
+  {% if sub %}<p style="margin:12px 0 0;font-size:12px;color:{{ brand.muted }};">{{ sub }}</p>{% endif %}
+{% endmacro %}
+
+{% macro pill(brand, text, tone_name) %}
+  {% if tone_name == 'success' %}{% set tc, tbg, tbd = '#16a34a', '#f0fdf4', '#c6f0d2' %}
+  {% elif tone_name == 'danger' %}{% set tc, tbg, tbd = '#dc2626', '#fef2f2', '#f6d6d6' %}
+  {% elif tone_name == 'warn' %}{% set tc, tbg, tbd = '#d97a1f', '#fdf3e8', '#f3ddc2' %}
+  {% elif tone_name == 'info' %}{% set tc, tbg, tbd = '#2563eb', '#eff5ff', '#d8e6fd' %}
+  {% else %}{% set tc, tbg, tbd = '#6a3fd6', '#f0ecfb', '#e2d8f7' %}{% endif %}
+  <span style="display:inline-block;font-size:12px;font-weight:600;color:{{ tc }};background:{{ tbg }};border:1px solid {{ tbd }};border-radius:6px;padding:2px 9px;">{{ text }}</span>
+{% endmacro %}
+
+{% macro workflow_step(brand, from_stage, to_stage) %}
+  <span style="color:{{ brand.muted }};">{{ from_stage }}</span>
+  <span style="color:{{ brand.accent }};font-weight:700;"> → </span>
+  <span style="color:{{ brand.ink }};font-weight:600;">{{ to_stage }}</span>
+{% endmacro %}
+
+{% macro quote_block(brand, text, tone_name) %}
+  {% if tone_name == 'success' %}{% set tc, tbg = '#16a34a', '#f0fdf4' %}
+  {% elif tone_name == 'danger' %}{% set tc, tbg = '#dc2626', '#fef2f2' %}
+  {% elif tone_name == 'warn' %}{% set tc, tbg = '#d97a1f', '#fdf3e8' %}
+  {% elif tone_name == 'info' %}{% set tc, tbg = '#2563eb', '#eff5ff' %}
+  {% else %}{% set tc, tbg = '#6a3fd6', '#f0ecfb' %}{% endif %}
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+    <tr><td style="border-left:3px solid {{ tc }};background:{{ tbg }};border-radius:0 10px 10px 0;padding:12px 14px;font-size:13.5px;color:{{ brand.ink }};line-height:1.55;">&ldquo;{{ text }}&rdquo;</td></tr>
+  </table>
+{% endmacro %}

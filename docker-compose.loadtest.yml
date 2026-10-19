@@ -1,0 +1,28 @@
+# Optional: run Locust on the UAT host without installing Python on EC2.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.loadtest.yml run --rm --service-ports loadtest
+#
+# Create loadtest/.env first (see loadtest/.env.example).
+# For UAT_BASE_URL inside the compose network use: http://api:8052/api/v1
+
+services:
+  loadtest:
+    build:
+      context: ./loadtest
+      dockerfile: Dockerfile
+    env_file:
+      - ./loadtest/.env
+    volumes:
+      - ./loadtest/fixtures:/loadtest/fixtures:ro
+      - ./loadtest/reports:/loadtest/reports
+    ports:
+      - "8089:8089"
+    # Same network as api/worker so http://api:8052 works from locustfile.
+    depends_on:
+      - api
+    profiles:
+      - loadtest
+    command:
+      - sh
+      - -c
+      - exec locust -f locustfile.py --host="$${UAT_BASE_URL:-http://api:8052/api/v1}"

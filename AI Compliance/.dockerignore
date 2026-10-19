@@ -1,0 +1,48 @@
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+aienv/
+.venv/
+venv/
+env/
+
+.git/
+.gitignore
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Docs and local notes (not needed in containers)
+*.md
+!README.md
+
+# Tests (ops scripts live in repo-root scripts/, mounted by Compose)
+tests/
+*.log
+
+# Env secrets (use .env.docker via compose)
+.env
+.env.*
+!.env.docker
+
+# Large local artifacts
+*.pdf
+*.docx
+*.pptx
+*.xlsx
+downloads/
+uploads/
+tmp/
+temp/

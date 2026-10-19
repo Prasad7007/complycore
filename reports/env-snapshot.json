@@ -1,0 +1,8 @@
+{
+  "captured_at_utc": "2026-10-13T05:47:03Z",
+  "hostname": "ip-10-20-1-98.ca-central-1.compute.internal",
+  "ec2_instance_type": "unknown",
+  "git_sha": "c57908888802ff1ed1a4397281471f1d0a8a220b",
+  "worker_compose_memory_line": "memory:6G",
+  "note": "Run ./loadtest/snapshot_env.sh before Locust; attach env-snapshot.json to benchmark report."
+}

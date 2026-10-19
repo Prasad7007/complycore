@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+
+{% block content %}
+<p style="margin:0 0 14px;font-size:14px;color:{{ brand.body }};line-height:1.6;">An account has been created for you on {{ brand.name }} as <b>{{ role_name }}</b>. Use the temporary password below to sign in — please reset it after logging in.</p>
+{{ m.info_table(brand, info_rows) }}
+{% endblock %}
+
+{% block after_content %}
+{{ m.cta_button(brand, cta_label, login_url, tone, cta_sub) }}
+{% endblock %}

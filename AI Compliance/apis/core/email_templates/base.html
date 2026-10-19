@@ -1,0 +1,40 @@
+{# ComplyCore transactional email shell (600px, inline styles).
+   IDE note: .html files here are Jinja2 templates. Red squiggles in style=""
+   are false positives unless the editor uses the "jinja-html" language mode
+   (see .vscode/settings.json). Rendering is validated via scripts/preview_email.py #}
+{% if tone == 'success' %}{% set tc, tbg, tbd = '#16a34a', '#f0fdf4', '#c6f0d2' %}
+{% elif tone == 'danger' %}{% set tc, tbg, tbd = '#dc2626', '#fef2f2', '#f6d6d6' %}
+{% elif tone == 'warn' %}{% set tc, tbg, tbd = '#d97a1f', '#fdf3e8', '#f3ddc2' %}
+{% elif tone == 'info' %}{% set tc, tbg, tbd = '#2563eb', '#eff5ff', '#d8e6fd' %}
+{% else %}{% set tc, tbg, tbd = '#6a3fd6', '#f0ecfb', '#e2d8f7' %}{% endif %}
+{% if preheader %}
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;">{{ preheader }}</div>
+{% endif %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{{ brand.page_bg }};padding:24px 0;">
+  <tr><td align="center">
+    <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:600px;background:#ffffff;border:1px solid {{ brand.line }};border-radius:16px;overflow:hidden;font-family:{{ brand.font }};">
+      <tr><td style="padding:18px 36px;border-bottom:1px solid {{ brand.line }};">
+        <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+          <td style="vertical-align:middle;"><img src="{{ brand.logo_url }}" width="34" height="34" alt="ComplyCore" style="display:block;border:0;outline:none;width:34px;height:auto;"></td>
+          <td style="vertical-align:middle;padding-left:10px;font-size:17px;font-weight:700;letter-spacing:-0.01em;font-family:{{ brand.font }};"><span style="color:{{ brand.purple }};">Comply</span><span style="color:{{ brand.blue }};">Core</span></td>
+        </tr></table>
+      </td></tr>
+      {% if eyebrow %}
+      <tr><td style="padding:18px 36px 0;"><span style="display:inline-block;font-family:{{ brand.font }};font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:{{ tc }};background:{{ tbg }};border:1px solid {{ tbd }};border-radius:20px;padding:4px 11px;">{{ eyebrow }}</span></td></tr>
+      {% endif %}
+      {% if heading %}
+      <tr><td style="padding:14px 36px 0;"><h1 style="margin:0;font-family:{{ brand.font }};font-size:21px;line-height:1.3;letter-spacing:-0.01em;color:{{ brand.ink }};">{{ heading }}</h1></td></tr>
+      {% endif %}
+      <tr><td style="padding:30px 36px 34px;">
+        {% if first_name %}
+        <p style="margin:0 0 14px;font-size:15px;color:{{ brand.ink }};">Hi {{ first_name }},</p>
+        {% endif %}
+        {% block content %}{% endblock %}
+        {% block after_content %}{% endblock %}
+      </td></tr>
+      <tr><td style="padding:18px 36px 24px;border-top:1px solid {{ brand.line }};background:{{ brand.soft }};">
+        <p style="margin:0;font-size:11.5px;color:{{ brand.muted }};line-height:1.55;">This is an automated message from {{ brand.name }}. Please don't reply to this email.<br>&copy; ComplyCore &middot; You're receiving this because you have an active ComplyCore account.</p>
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
