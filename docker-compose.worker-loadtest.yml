@@ -1,0 +1,25 @@
+# Worker-only capacity benchmark. This override keeps the normal Locust compose
+# profile independent and enables the fake LLM only for an explicit benchmark run.
+services:
+  worker:
+    environment:
+      LOAD_TEST_STUB_LLM: "true"
+      LOAD_TEST_STUB_LLM_DELAY_SEC: "1.5"
+
+  worker-capacity:
+    build:
+      context: "./AI Compliance"
+      dockerfile: Dockerfile.worker
+    env_file:
+      - "./AI Compliance/.env.docker"
+    environment:
+      LOAD_TEST_STUB_LLM: "true"
+      LOAD_TEST_STUB_LLM_DELAY_SEC: "1.5"
+    volumes:
+      - ./loadtest/worker_capacity.py:/loadtest/worker_capacity.py:ro
+      - ./loadtest/reports:/loadtest/reports
+    profiles:
+      - worker-loadtest
+    entrypoint:
+      - python
+      - /loadtest/worker_capacity.py

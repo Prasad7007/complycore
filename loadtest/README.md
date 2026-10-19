@@ -2,6 +2,37 @@
 
 Measures end-to-end document throughput: **upload → Celery → Docling → pipeline (stub LLM in UAT) → Postgres**.
 
+## EC2 worker capacity (no auth, supplied PDF, or loadtest `.env`)
+
+Use this mode when the goal is to measure document-analysis worker capacity on the **already configured, non-production EC2 stack**. It dispatches synthetic documents directly to Celery, so it does not measure API upload/auth capacity.
+
+The runner generates a small PDF itself, creates temporary document records and S3 objects using the stack's existing database/storage configuration, waits for analysis to finish, then removes the test data. It selects an active organization/member automatically; it does not need an API token, UAT URL, user login, `loadtest/.env`, or a PDF fixture.
+
+Set `APP_ENV` explicitly to a non-production value in `AI Compliance/.env.docker` if it is not already set. The load-test stub refuses `production`. The existing app stack and its DB/S3 configuration must already be running.
+
+From the repo root on EC2:
+
+```bash
+# Defaults to 2, 4, 6, and 8 documents dispatched together (12-minute pass limit per step).
+bash loadtest/run_worker_capacity.sh
+
+# Or choose batch sizes:
+bash loadtest/run_worker_capacity.sh 2 4 6 8 10
+```
+
+The script temporarily recreates the existing worker with the fake LLM enabled, leaves it running during the test, and restores its normal Compose environment after successful completion. This brief restart is required for the worker process to load the stub setting. Results are written to `loadtest/reports/worker-capacity-<run-id>.json`.
+
+If the run exits nonzero, the script deliberately skips restoring the worker to avoid queued tasks switching to a real provider. Check that the Celery queue has drained, then remove any retained synthetic data and restore the worker:
+
+```bash
+docker compose --profile worker-loadtest -f docker-compose.yml -f docker-compose.worker-loadtest.yml \
+  run --rm --no-deps worker-capacity \
+  --cleanup-run-id <run-id-from-output>
+docker compose up -d --no-deps --force-recreate worker
+```
+
+Do not run this against production. It exercises document analysis and its LLM stub, not HTTP uploads, authentication, or the upload-time classification task.
+
 ## 1. Enable stub LLM on UAT worker only
 
 In the worker environment (e.g. `AI Compliance/.env.docker` on the server), **not** in production:

@@ -2,6 +2,20 @@
 
 Run all commands from the **repo root**: `~/compliance_ai`
 
+## Worker-only benchmark (no token or supplied PDF)
+
+For an EC2 worker-capacity test that does not call the HTTP API, use:
+
+```bash
+bash loadtest/run_worker_capacity.sh
+```
+
+It generates its own small PDF, selects an active organization/member from the configured DB, inserts temporary test records, dispatches analysis tasks directly to Celery, and removes the records and S3 objects after the tasks drain. No API token, UAT URL, `loadtest/.env`, or user-supplied PDF is needed. The existing stack's database and S3 configuration are still required.
+
+`APP_ENV` must be explicitly set to a non-production value in `AI Compliance/.env.docker`; production is refused. The script briefly recreates the worker with the fake LLM enabled, keeps it running through the benchmark, and restores normal Compose configuration after a successful run. Defaults are batch sizes `2 4 6 8`, 12 minutes per step, and 1.5 seconds per stub LLM call. Pass custom batch sizes as arguments, e.g. `bash loadtest/run_worker_capacity.sh 2 4 6 8 10`.
+
+The test reports the largest batch size that completed successfully within the step limit. This is **worker/document-analysis capacity only**; it does not measure upload/API/auth throughput. See `loadtest/README.md` for recovery instructions if the runner exits nonzero.
+
 **Prerequisites**
 
 - `loadtest/.env` configured (`AUTH_TOKEN`, `ORG_SLUG=etai`, etc.)
