@@ -4,9 +4,9 @@ Measures end-to-end document throughput: **upload → Celery → Docling → pip
 
 ## EC2 worker capacity (fully local; no secrets, auth, or supplied PDF)
 
-Use this mode to measure document-analysis worker capacity on EC2. It runs an isolated test stack containing PostgreSQL, Redis, MinIO (local S3-compatible storage), and a worker. It does not use the normal application stack, AWS resources, credentials, API auth, a `loadtest/.env`, or a supplied PDF. It does not measure HTTP upload/auth capacity.
+Use this mode to measure document-analysis worker capacity on EC2. It runs an isolated test stack containing PostgreSQL, Redis, S3Mock (local S3-compatible storage), and a worker. It does not use the normal application stack, AWS resources, credentials, API auth, a `loadtest/.env`, or a supplied PDF. It does not measure HTTP upload/auth capacity.
 
-The runner initializes a fresh local test database, creates a synthetic test organization/member and a small PDF, uploads it to the local MinIO container, and dispatches analysis directly to Celery. The LLM stub is always enabled and uses a fixed 1.5-second delay per call. On successful completion, generated rows, local S3 objects, and the isolated stack are removed; the JSON report remains under `loadtest/reports/`.
+The runner initializes a fresh local test database and S3Mock bucket, creates a synthetic test organization/member and a small PDF, uploads it to local S3Mock, and dispatches analysis directly to Celery. The LLM stub is always enabled and uses a fixed 1.5-second delay per call. On successful completion, generated rows, local S3 objects, and the isolated stack are removed; the JSON report remains under `loadtest/reports/`.
 
 From the repo root on EC2:
 

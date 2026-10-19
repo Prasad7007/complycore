@@ -14,8 +14,11 @@ fi
 mkdir -p loadtest/reports
 
 "${COMPOSE[@]}" build loadtest-worker worker-capacity
-"${COMPOSE[@]}" up -d loadtest-db loadtest-redis loadtest-minio
-"${COMPOSE[@]}" run --rm loadtest-minio-init
+"${COMPOSE[@]}" up -d loadtest-db loadtest-redis loadtest-s3mock
+
+echo "Creating the isolated S3Mock bucket..."
+"${COMPOSE[@]}" run --rm worker-capacity \
+  python -c "from apis.services.ai.core.s3_client import s3_client; s3_client.create_bucket(Bucket='complycore-loadtest')"
 
 echo "Initializing the isolated load-test database..."
 "${COMPOSE[@]}" run --rm worker-capacity python init_database.py
