@@ -52,9 +52,11 @@ def _get_db_url() -> str:
             "Export it in your shell or add it to AI Compliance/.env"
         )
 
-    # Swap asyncpg driver for psycopg2 (Alembic needs sync driver)
-    url = url.replace("postgresql+asyncpg://", "postgresql://")
+    # Alembic uses the installed psycopg2-binary sync driver explicitly.
+    url = url.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
     url = url.replace("+asyncpg", "")
+    if url.startswith("postgresql://"):
+        url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
 
     # When running on host machine (not inside Docker), replace Docker hostname
     url = url.replace("host.docker.internal", "localhost")
