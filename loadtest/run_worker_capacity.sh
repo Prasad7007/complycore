@@ -18,7 +18,7 @@ mkdir -p loadtest/reports
 
 echo "Creating the isolated S3Mock bucket..."
 "${COMPOSE[@]}" run --rm worker-capacity \
-  python -c "from apis.services.ai.core.s3_client import s3_client; s3_client.create_bucket(Bucket='complycore-loadtest')"
+  python -c "from apis.services.ai.core.s3_client import s3_client; bucket='complycore-loadtest'; buckets={item['Name'] for item in s3_client.list_buckets().get('Buckets', [])}; s3_client.create_bucket(Bucket=bucket) if bucket not in buckets else print(f'S3Mock bucket {bucket} already exists.')"
 
 echo "Initializing the isolated load-test database..."
 "${COMPOSE[@]}" run --rm worker-capacity python init_database.py
