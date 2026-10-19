@@ -18,7 +18,7 @@ bash loadtest/run_worker_capacity.sh
 bash loadtest/run_worker_capacity.sh 2 4 6 8 10
 ```
 
-No `.env` file or pre-existing application/database/S3 stack is required. Docker and Compose are the only host prerequisites. The test uses the existing worker Dockerfile, with the fake LLM guaranteed on for the isolated worker. Results are written to `loadtest/reports/worker-capacity-<run-id>.json`.
+No `.env` file or pre-existing application/database/S3 stack is required. Docker and Compose are the only host prerequisites. Its image opts in to the migration-only dependencies needed to initialize the isolated database; normal worker images are unchanged. The fake LLM is guaranteed on for the isolated worker. Results are written to `loadtest/reports/worker-capacity-<run-id>.json`.
 
 If the run exits nonzero, the isolated services are left running, and there are no real-provider credentials configured. Inspect the run ID and worker logs, wait for any queued jobs to finish, then remove the test data and isolated containers:
 

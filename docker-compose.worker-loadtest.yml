@@ -32,6 +32,8 @@ services:
     build:
       context: "./AI Compliance"
       dockerfile: Dockerfile.worker
+      args:
+        INSTALL_MIGRATION_TOOLS: "true"
     environment:
       APP_ENV: loadtest
       DATABASE_URL: postgresql://loadtest:loadtest-only-password@loadtest-db:5432/complycore_loadtest
@@ -67,6 +69,8 @@ services:
     build:
       context: "./AI Compliance"
       dockerfile: Dockerfile.worker
+      args:
+        INSTALL_MIGRATION_TOOLS: "true"
     environment:
       APP_ENV: loadtest
       DATABASE_URL: postgresql://loadtest:loadtest-only-password@loadtest-db:5432/complycore_loadtest

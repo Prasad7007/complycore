@@ -1,4 +1,5 @@
-# Migration tooling only — not installed in API or worker images.
+# Migration tooling only — excluded from normal API and worker images.
+# The isolated worker-capacity Compose stack opts in at image build time.
 # Install locally or in a CI migration step:
 #   pip install -r requirements_migrations.txt
 alembic>=1.13.0

@@ -12,7 +12,7 @@ bash loadtest/run_worker_capacity.sh
 
 It starts temporary local PostgreSQL, Redis, S3Mock, and a Celery worker; applies migrations and seed data; generates a small PDF; creates synthetic document records; and dispatches analysis tasks directly to Celery. The LLM stub is enabled with a fixed 1.5-second per-call delay. Successful runs remove synthetic rows and local objects, stop the isolated services, and leave the JSON report in `loadtest/reports/`.
 
-No app `.env`, UAT token, external database, S3 bucket, or PDF fixture is needed. Docker and Compose are the only host requirements. Defaults test batch sizes `2 4 6 8`, with a 12-minute pass limit and up to a 60-minute drain period per step. Pass custom batch sizes as arguments, e.g. `bash loadtest/run_worker_capacity.sh 2 4 6 8 10`.
+No app `.env`, UAT token, external database, S3 bucket, or PDF fixture is needed. Docker and Compose are the only host requirements. The benchmark image opts in to the migration-only dependencies required for database initialization; normal worker images do not. Defaults test batch sizes `2 4 6 8`, with a 12-minute pass limit and up to a 60-minute drain period per step. Pass custom batch sizes as arguments, e.g. `bash loadtest/run_worker_capacity.sh 2 4 6 8 10`.
 
 The report gives the largest batch size that completed successfully within the step limit and documents/hour observed. This is **worker/document-analysis capacity only**; it does not measure upload/API/auth throughput. If interrupted or failed, the isolated services remain available for inspection; wait for queued tasks to drain, then use the run-ID cleanup and `docker compose -f docker-compose.worker-loadtest.yml down` commands in `loadtest/README.md`.
 
