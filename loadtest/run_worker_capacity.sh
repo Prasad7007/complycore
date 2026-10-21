@@ -5,19 +5,19 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "${ROOT}"
 
 COMPOSE=(docker compose -f docker-compose.worker-loadtest.yml)
-WORKER_COUNTS=(1 2)
-STEPS=(2 4 6 8)
+CONCURRENCY_LEVELS=(1 2)
+STEPS=(4 8 12)
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --workers)
+    --concurrency)
       shift
-      WORKER_COUNTS=()
+      CONCURRENCY_LEVELS=()
       while [[ $# -gt 0 && "$1" != --* ]]; do
-        WORKER_COUNTS+=("$1")
+        CONCURRENCY_LEVELS+=("$1")
         shift
       done
-      if [[ ${#WORKER_COUNTS[@]} -eq 0 ]]; then
-        echo "Usage: $0 [--workers COUNT [COUNT ...]] [--steps DOCS [DOCS ...]]" >&2
+      if [[ ${#CONCURRENCY_LEVELS[@]} -eq 0 ]]; then
+        echo "Usage: $0 [--concurrency COUNT [COUNT ...]] [--steps DOCS [DOCS ...]]" >&2
         exit 2
       fi
       ;;
@@ -29,13 +29,13 @@ while [[ $# -gt 0 ]]; do
         shift
       done
       if [[ ${#STEPS[@]} -eq 0 ]]; then
-        echo "Usage: $0 [--workers COUNT [COUNT ...]] [--steps DOCS [DOCS ...]]" >&2
+        echo "Usage: $0 [--concurrency COUNT [COUNT ...]] [--steps DOCS [DOCS ...]]" >&2
         exit 2
       fi
       ;;
     -*)
       echo "Unknown option: $1" >&2
-      echo "Usage: $0 [--workers COUNT [COUNT ...]] [--steps DOCS [DOCS ...]]" >&2
+      echo "Usage: $0 [--concurrency COUNT [COUNT ...]] [--steps DOCS [DOCS ...]]" >&2
       exit 2
       ;;
     *)
@@ -46,13 +46,13 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-previous_workers=0
-for workers in "${WORKER_COUNTS[@]}"; do
-  if [[ ! "${workers}" =~ ^[1-9][0-9]*$ ]] || ((workers <= previous_workers)); then
-    echo "Worker counts must be positive integers in strictly increasing order." >&2
+previous_concurrency=0
+for concurrency in "${CONCURRENCY_LEVELS[@]}"; do
+  if [[ ! "${concurrency}" =~ ^[1-9][0-9]*$ ]] || ((concurrency <= previous_concurrency)); then
+    echo "Concurrency values must be positive integers in strictly increasing order." >&2
     exit 2
   fi
-  previous_workers="${workers}"
+  previous_concurrency="${concurrency}"
 done
 for step in "${STEPS[@]}"; do
   if [[ ! "${step}" =~ ^[1-9][0-9]*$ ]]; then
@@ -60,6 +60,16 @@ for step in "${STEPS[@]}"; do
     exit 2
   fi
 done
+largest_step=0
+for step in "${STEPS[@]}"; do
+  if ((step > largest_step)); then
+    largest_step="${step}"
+  fi
+done
+if ((previous_concurrency > largest_step)); then
+  echo "The largest document batch must be at least the highest concurrency value." >&2
+  exit 2
+fi
 
 mkdir -p loadtest/reports
 
@@ -73,36 +83,35 @@ echo "Creating the isolated S3Mock bucket..."
 echo "Initializing the isolated load-test database..."
 "${COMPOSE[@]}" run --rm worker-capacity python init_database.py
 
-"${COMPOSE[@]}" up -d --scale "loadtest-worker=${WORKER_COUNTS[0]}" loadtest-worker
+status=0
+for concurrency in "${CONCURRENCY_LEVELS[@]}"; do
+  echo "Benchmarking up to ${concurrency} parallel document task(s); batch steps=${STEPS[*]}"
+  WORKER_CONCURRENCY="${concurrency}" "${COMPOSE[@]}" up -d --force-recreate \
+    --scale loadtest-worker=1 loadtest-worker
 
-stub_active=0
-for _ in $(seq 1 30); do
-  if "${COMPOSE[@]}" logs --no-color --since=2m loadtest-worker 2>&1 \
-    | grep -Fq "LOAD_TEST_STUB_LLM ACTIVE"; then
-    stub_active=1
+  stub_active=0
+  for _ in $(seq 1 30); do
+    if "${COMPOSE[@]}" logs --no-color --since=2m loadtest-worker 2>&1 \
+      | grep -Fq "LOAD_TEST_STUB_LLM ACTIVE"; then
+      stub_active=1
+      break
+    fi
+    sleep 2
+  done
+  if [[ "${stub_active}" != "1" ]]; then
+    echo "Worker did not confirm the LLM stub at concurrency=${concurrency}; refusing to enqueue load." >&2
+    status=1
     break
   fi
-  sleep 2
-done
-if [[ "${stub_active}" != "1" ]]; then
-  echo "Worker did not confirm the LLM stub in its startup logs; refusing to enqueue load." >&2
-  echo "The isolated stack is left running for inspection; no real AWS LLM credentials are configured." >&2
-  exit 1
-fi
-
-status=0
-for workers in "${WORKER_COUNTS[@]}"; do
-  echo "Benchmarking ${workers} worker container(s), each with concurrency=2; batch steps=${STEPS[*]}"
-  "${COMPOSE[@]}" up -d --scale "loadtest-worker=${workers}" loadtest-worker
 
   set +e
   "${COMPOSE[@]}" run --rm worker-capacity \
-    python /loadtest/worker_capacity.py --workers "${workers}" --steps "${STEPS[@]}"
+    python /loadtest/worker_capacity.py --concurrency "${concurrency}" --steps "${STEPS[@]}"
   status=$?
   set -e
 
   if [[ "${status}" != "0" ]]; then
-    echo "Worker-count sweep stopped at ${workers}; inspect the report and queue before continuing." >&2
+    echo "Concurrency sweep stopped at ${concurrency}; inspect the report and queue before continuing." >&2
     break
   fi
 done

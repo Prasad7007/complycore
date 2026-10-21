@@ -62,7 +62,7 @@ services:
       - apis.services.celery_app
       - worker
       - --loglevel=info
-      - --concurrency=2
+      - --concurrency=${WORKER_CONCURRENCY:-2}
     mem_limit: 6g
 
   worker-capacity:

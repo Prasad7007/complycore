@@ -36,17 +36,17 @@ def _parse_args() -> argparse.Namespace:
         description="Queue synthetic document analyses directly to Celery and report worker capacity."
     )
     parser.add_argument(
-        "--workers",
+        "--concurrency",
         type=int,
         default=1,
-        help="Worker container replicas used for this run (default: 1).",
+        help="Maximum simultaneous Celery document tasks for this run (default: 1).",
     )
     parser.add_argument(
         "--steps",
         nargs="+",
         type=int,
-        default=[2, 4, 6, 8],
-        help="Documents to dispatch together at each capacity step (default: 2 4 6 8).",
+        default=[4, 8, 12],
+        help="Documents to dispatch together at each capacity step (default: 4 8 12).",
     )
     parser.add_argument(
         "--max-wait-minutes",
@@ -313,6 +313,17 @@ async def _refresh_states(pool: asyncpg.Pool, docs: list[dict[str, Any]]) -> Non
         records = by_review.get(doc["review_id"], [])
         starts = [e["created_at"] for e in records if e["event_type"] == "ai_analysis_started"]
         terminals = [e for e in records if e["event_type"] in TERMINAL_EVENTS]
+        intervals: list[tuple[datetime, datetime | None]] = []
+        active_start = None
+        for event in records:
+            if event["event_type"] == "ai_analysis_started" and active_start is None:
+                active_start = event["created_at"]
+            elif event["event_type"] in TERMINAL_EVENTS and active_start is not None:
+                intervals.append((active_start, event["created_at"]))
+                active_start = None
+        if active_start is not None:
+            intervals.append((active_start, None))
+        doc["analysis_intervals"] = intervals
         if starts:
             doc["started_at"] = starts[0]
         if terminals:
@@ -386,6 +397,25 @@ async def _wait_for_batch(
     return time.monotonic() - started, False
 
 
+def _peak_parallel_docs(docs: list[dict[str, Any]]) -> int:
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    events: list[tuple[datetime, int]] = []
+    for doc in docs:
+        for started_at, finished_at in doc.get("analysis_intervals", []):
+            finished_at = finished_at or now
+            if finished_at <= started_at:
+                continue
+            events.append((started_at, 1))
+            events.append((finished_at, -1))
+
+    active = 0
+    peak = 0
+    for _, change in sorted(events, key=lambda event: (event[0], event[1])):
+        active += change
+        peak = max(peak, active)
+    return peak
+
+
 def _step_summary(step: int, docs: list[dict[str, Any]], elapsed: float, within_limit: bool) -> dict[str, Any]:
     completed = [doc for doc in docs if doc["state"] == "completed"]
     failed = [doc for doc in docs if doc["state"] in {"failed", "dispatch_failed"}]
@@ -410,6 +440,7 @@ def _step_summary(step: int, docs: list[dict[str, Any]], elapsed: float, within_
         "docs_per_hour": round(len(completed) / elapsed * 3600, 2) if elapsed and completed else 0,
         "analysis_duration_p50_seconds": round(p50, 2) if p50 is not None else None,
         "analysis_duration_p95_seconds": round(p95, 2) if p95 is not None else None,
+        "max_observed_parallel_docs": _peak_parallel_docs(docs),
         "stable": stable,
     }
 
@@ -471,8 +502,8 @@ async def _run(args: argparse.Namespace) -> int:
     assert_stub_allowed()
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL is missing from the running application environment.")
-    if args.workers < 1:
-        raise ValueError("--workers must be a positive integer.")
+    if args.concurrency < 1:
+        raise ValueError("--concurrency must be a positive integer.")
     if any(step < 1 for step in args.steps):
         raise ValueError("Every --steps value must be a positive integer.")
     if args.max_wait_minutes <= 0 or args.drain_timeout_minutes <= 0 or args.poll_interval_seconds <= 0:
@@ -489,13 +520,13 @@ async def _run(args: argparse.Namespace) -> int:
     run_id = uuid.uuid4().hex
     print(
         f"Worker-only load test run_id={run_id}; no HTTP, token, or supplied PDF. "
-        f"Worker containers={args.workers} (concurrency=2 each); "
+        f"configured maximum parallel tasks={args.concurrency}; "
         f"stub delay=1.5s per LLM call; batch steps={args.steps}",
         flush=True,
     )
     all_docs: list[dict[str, Any]] = []
     summaries: list[dict[str, Any]] = []
-    capacity = None
+    stable_parallelism = 0
     exceeded = False
     bucket = (ai_config.AWS_S3_BUCKET or "").strip()
     try:
@@ -558,12 +589,12 @@ async def _run(args: argparse.Namespace) -> int:
             summary = _step_summary(step, docs, elapsed, within_limit)
             summaries.append(summary)
             print(json.dumps(summary, indent=2), flush=True)
+            if summary["stable"]:
+                stable_parallelism = max(stable_parallelism, summary["max_observed_parallel_docs"])
             if summary["still_processing"]:
                 exceeded = True
                 break
-            if summary["stable"]:
-                capacity = step
-            else:
+            if not summary["stable"]:
                 break
 
         if exceeded:
@@ -574,11 +605,10 @@ async def _run(args: argparse.Namespace) -> int:
                         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
                         "run_id": run_id,
                         "mode": "direct Celery document-analysis worker capacity",
-                        "worker_replicas": args.workers,
-                        "worker_concurrency": 2,
+                        "configured_max_parallel_tasks": args.concurrency,
                         "llm_mode": "stub",
                         "steps": summaries,
-                        "max_stable_concurrent_docs": capacity,
+                        "max_stable_parallel_docs": stable_parallelism,
                         "cleanup": "deferred because Celery work may still be active",
                     },
                     indent=2,
@@ -592,11 +622,10 @@ async def _run(args: argparse.Namespace) -> int:
             "generated_at_utc": datetime.now(timezone.utc).isoformat(),
             "run_id": run_id,
             "mode": "direct Celery document-analysis worker capacity",
-            "worker_replicas": args.workers,
-            "worker_concurrency": 2,
+            "configured_max_parallel_tasks": args.concurrency,
             "llm_mode": "stub",
             "stub_delay_seconds_per_call": 1.5,
-            "max_stable_concurrent_docs": capacity,
+            "max_stable_parallel_docs": stable_parallelism,
             "steps": summaries,
         }
         await _cleanup(pool, all_docs, bucket, run_id)
@@ -604,7 +633,11 @@ async def _run(args: argparse.Namespace) -> int:
         REPORT_DIR.mkdir(parents=True, exist_ok=True)
         report_path = REPORT_DIR / f"worker-capacity-{run_id}.json"
         report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-        print(f"Maximum stable batch size within {args.max_wait_minutes:g} minutes: {capacity}", flush=True)
+        print(
+            f"Maximum observed parallel documents in a stable batch: {stable_parallelism} "
+            f"(configured limit {args.concurrency})",
+            flush=True,
+        )
         print(f"Report: {report_path}", flush=True)
         print("Synthetic database records and S3 files cleaned up.", flush=True)
         return 0

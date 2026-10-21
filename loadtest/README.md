@@ -11,19 +11,19 @@ The runner initializes a fresh local test database and S3Mock bucket, creates a 
 From the repo root on EC2:
 
 ```bash
-# Sweep 1 then 2 worker containers (2 Celery tasks each) using batches 2, 4, 6, and 8.
+# Sweep Celery concurrency 1 then 2, using document batches 4, 8, and 12.
 bash loadtest/run_worker_capacity.sh
 
-# Test specific worker counts and document batch sizes:
-bash loadtest/run_worker_capacity.sh --workers 1 2 3 --steps 4 8 12
+# Test higher parallel-task limits and document batch sizes:
+bash loadtest/run_worker_capacity.sh --concurrency 1 2 3 4 --steps 8 12 16
 
-# Previous positional form still selects document batch sizes (uses 1 and 2 workers):
+# Positional arguments still select document batch sizes:
 bash loadtest/run_worker_capacity.sh 2 4 6 8 10
 ```
 
 No `.env` file or pre-existing application/database/S3 stack is required. Docker and Compose are the only host prerequisites. Its image opts in to the migration-only dependencies needed to initialize the isolated database; normal worker images are unchanged. The fake LLM is guaranteed on for the isolated worker. Results are written to `loadtest/reports/worker-capacity-<run-id>.json`.
 
-Each worker-count run uses the same document batch ladder, and its JSON report records `worker_replicas` and `worker_concurrency`. The script stops the sweep if a run errors or cannot drain queued work; a completed run can still report that a batch missed the 12-minute stability limit. Increase replica counts cautiously: each container has Celery concurrency 2, so total parallel tasks are `worker_replicas × 2`; CPU and memory use also increase. This is a benchmark, not an automatic production autoscaler.
+Each run configures one worker container with the selected Celery concurrency, then measures peak overlap of analysis start/completion intervals from audit events. The report includes `configured_max_parallel_tasks`, `max_stable_parallel_docs`, and each batch's `max_observed_parallel_docs`. `max_stable_parallel_docs` is the measured peak in batches that completed without failures inside the time limit; it is the result for this EC2 instance and synthetic workload, not a guaranteed production limit. The default sweep is limited to concurrency 1 and 2; test higher values cautiously because worker memory can increase substantially. The largest batch must be at least as large as the highest concurrency value.
 
 If the run exits nonzero, the isolated services are left running, and there are no real-provider credentials configured. Inspect the run ID and worker logs, wait for any queued jobs to finish, then remove the test data and isolated containers:
 
