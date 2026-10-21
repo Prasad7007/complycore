@@ -11,14 +11,19 @@ The runner initializes a fresh local test database and S3Mock bucket, creates a 
 From the repo root on EC2:
 
 ```bash
-# Defaults to 2, 4, 6, and 8 documents dispatched together.
+# Sweep 1 then 2 worker containers (2 Celery tasks each) using batches 2, 4, 6, and 8.
 bash loadtest/run_worker_capacity.sh
 
-# Or choose batch sizes:
+# Test specific worker counts and document batch sizes:
+bash loadtest/run_worker_capacity.sh --workers 1 2 3 --steps 4 8 12
+
+# Previous positional form still selects document batch sizes (uses 1 and 2 workers):
 bash loadtest/run_worker_capacity.sh 2 4 6 8 10
 ```
 
 No `.env` file or pre-existing application/database/S3 stack is required. Docker and Compose are the only host prerequisites. Its image opts in to the migration-only dependencies needed to initialize the isolated database; normal worker images are unchanged. The fake LLM is guaranteed on for the isolated worker. Results are written to `loadtest/reports/worker-capacity-<run-id>.json`.
+
+Each worker-count run uses the same document batch ladder, and its JSON report records `worker_replicas` and `worker_concurrency`. The script stops the sweep if a run errors or cannot drain queued work; a completed run can still report that a batch missed the 12-minute stability limit. Increase replica counts cautiously: each container has Celery concurrency 2, so total parallel tasks are `worker_replicas × 2`; CPU and memory use also increase. This is a benchmark, not an automatic production autoscaler.
 
 If the run exits nonzero, the isolated services are left running, and there are no real-provider credentials configured. Inspect the run ID and worker logs, wait for any queued jobs to finish, then remove the test data and isolated containers:
 

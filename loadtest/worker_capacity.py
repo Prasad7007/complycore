@@ -36,6 +36,12 @@ def _parse_args() -> argparse.Namespace:
         description="Queue synthetic document analyses directly to Celery and report worker capacity."
     )
     parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Worker container replicas used for this run (default: 1).",
+    )
+    parser.add_argument(
         "--steps",
         nargs="+",
         type=int,
@@ -465,6 +471,8 @@ async def _run(args: argparse.Namespace) -> int:
     assert_stub_allowed()
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL is missing from the running application environment.")
+    if args.workers < 1:
+        raise ValueError("--workers must be a positive integer.")
     if any(step < 1 for step in args.steps):
         raise ValueError("Every --steps value must be a positive integer.")
     if args.max_wait_minutes <= 0 or args.drain_timeout_minutes <= 0 or args.poll_interval_seconds <= 0:
@@ -481,7 +489,8 @@ async def _run(args: argparse.Namespace) -> int:
     run_id = uuid.uuid4().hex
     print(
         f"Worker-only load test run_id={run_id}; no HTTP, token, or supplied PDF. "
-        f"Stub delay=1.5s per LLM call; batch steps={args.steps}",
+        f"Worker containers={args.workers} (concurrency=2 each); "
+        f"stub delay=1.5s per LLM call; batch steps={args.steps}",
         flush=True,
     )
     all_docs: list[dict[str, Any]] = []
@@ -565,6 +574,8 @@ async def _run(args: argparse.Namespace) -> int:
                         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
                         "run_id": run_id,
                         "mode": "direct Celery document-analysis worker capacity",
+                        "worker_replicas": args.workers,
+                        "worker_concurrency": 2,
                         "llm_mode": "stub",
                         "steps": summaries,
                         "max_stable_concurrent_docs": capacity,
@@ -581,6 +592,8 @@ async def _run(args: argparse.Namespace) -> int:
             "generated_at_utc": datetime.now(timezone.utc).isoformat(),
             "run_id": run_id,
             "mode": "direct Celery document-analysis worker capacity",
+            "worker_replicas": args.workers,
+            "worker_concurrency": 2,
             "llm_mode": "stub",
             "stub_delay_seconds_per_call": 1.5,
             "max_stable_concurrent_docs": capacity,

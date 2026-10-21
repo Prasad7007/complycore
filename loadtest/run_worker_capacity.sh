@@ -5,11 +5,61 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "${ROOT}"
 
 COMPOSE=(docker compose -f docker-compose.worker-loadtest.yml)
-if [[ $# -eq 0 ]]; then
-  STEPS=(2 4 6 8)
-else
-  STEPS=("$@")
-fi
+WORKER_COUNTS=(1 2)
+STEPS=(2 4 6 8)
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --workers)
+      shift
+      WORKER_COUNTS=()
+      while [[ $# -gt 0 && "$1" != --* ]]; do
+        WORKER_COUNTS+=("$1")
+        shift
+      done
+      if [[ ${#WORKER_COUNTS[@]} -eq 0 ]]; then
+        echo "Usage: $0 [--workers COUNT [COUNT ...]] [--steps DOCS [DOCS ...]]" >&2
+        exit 2
+      fi
+      ;;
+    --steps)
+      shift
+      STEPS=()
+      while [[ $# -gt 0 && "$1" != --* ]]; do
+        STEPS+=("$1")
+        shift
+      done
+      if [[ ${#STEPS[@]} -eq 0 ]]; then
+        echo "Usage: $0 [--workers COUNT [COUNT ...]] [--steps DOCS [DOCS ...]]" >&2
+        exit 2
+      fi
+      ;;
+    -*)
+      echo "Unknown option: $1" >&2
+      echo "Usage: $0 [--workers COUNT [COUNT ...]] [--steps DOCS [DOCS ...]]" >&2
+      exit 2
+      ;;
+    *)
+      # Keep the previous positional form, where arguments selected batch sizes.
+      STEPS=("$@")
+      break
+      ;;
+  esac
+done
+
+previous_workers=0
+for workers in "${WORKER_COUNTS[@]}"; do
+  if [[ ! "${workers}" =~ ^[1-9][0-9]*$ ]] || ((workers <= previous_workers)); then
+    echo "Worker counts must be positive integers in strictly increasing order." >&2
+    exit 2
+  fi
+  previous_workers="${workers}"
+done
+for step in "${STEPS[@]}"; do
+  if [[ ! "${step}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Document batch sizes must be positive integers." >&2
+    exit 2
+  fi
+done
 
 mkdir -p loadtest/reports
 
@@ -23,7 +73,7 @@ echo "Creating the isolated S3Mock bucket..."
 echo "Initializing the isolated load-test database..."
 "${COMPOSE[@]}" run --rm worker-capacity python init_database.py
 
-"${COMPOSE[@]}" up -d loadtest-worker
+"${COMPOSE[@]}" up -d --scale "loadtest-worker=${WORKER_COUNTS[0]}" loadtest-worker
 
 stub_active=0
 for _ in $(seq 1 30); do
@@ -40,11 +90,22 @@ if [[ "${stub_active}" != "1" ]]; then
   exit 1
 fi
 
-set +e
-"${COMPOSE[@]}" run --rm worker-capacity \
-  python /loadtest/worker_capacity.py --steps "${STEPS[@]}"
-status=$?
-set -e
+status=0
+for workers in "${WORKER_COUNTS[@]}"; do
+  echo "Benchmarking ${workers} worker container(s), each with concurrency=2; batch steps=${STEPS[*]}"
+  "${COMPOSE[@]}" up -d --scale "loadtest-worker=${workers}" loadtest-worker
+
+  set +e
+  "${COMPOSE[@]}" run --rm worker-capacity \
+    python /loadtest/worker_capacity.py --workers "${workers}" --steps "${STEPS[@]}"
+  status=$?
+  set -e
+
+  if [[ "${status}" != "0" ]]; then
+    echo "Worker-count sweep stopped at ${workers}; inspect the report and queue before continuing." >&2
+    break
+  fi
+done
 
 if [[ "${status}" == "0" ]]; then
   "${COMPOSE[@]}" down
