@@ -57,14 +57,14 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--max-wait-minutes",
         type=float,
-        default=12,
-        help="A step passes only if all its analyses finish within this time (default: 12).",
+        default=5,
+        help="A step passes only if all its analyses finish within this time (default: 5).",
     )
     parser.add_argument(
         "--drain-timeout-minutes",
         type=float,
-        default=5,
-        help="After a step exceeds its max wait, allow this long to drain queued work safely (default: 5).",
+        default=1,
+        help="After a step exceeds its max wait, allow this long to drain queued work safely (default: 1).",
     )
     parser.add_argument("--poll-interval-seconds", type=float, default=5)
     parser.add_argument(
@@ -361,6 +361,7 @@ async def _wait_for_batch(
 ) -> tuple[float, bool]:
     started = time.monotonic()
     deadline = started + max_wait_seconds
+    next_status_update = started
     while True:
         await _refresh_states(pool, docs)
         pending = [doc for doc in docs if doc["state"] not in {"completed", "failed"}]
@@ -375,20 +376,38 @@ async def _wait_for_batch(
                 flush=True,
             )
             break
-        print(
-            f"Step {step}: completed {len(docs) - len(pending)}/{len(docs)}; "
-            f"{len(pending)} still processing.",
-            flush=True,
-        )
+        if now >= next_status_update:
+            elapsed = int(now - started)
+            print(
+                f"Step {step}: completed {len(docs) - len(pending)}/{len(docs)}; "
+                f"{len(pending)} still processing; elapsed {elapsed}s / "
+                f"{max_wait_seconds:.0f}s limit.",
+                flush=True,
+            )
+            next_status_update = now + 30
         await asyncio.sleep(min(poll_interval_seconds, deadline - now))
 
+    print(
+        f"Step {step}: waiting up to {drain_timeout_seconds / 60:g} more minute(s) for outstanding tasks to drain.",
+        flush=True,
+    )
     drain_deadline = time.monotonic() + drain_timeout_seconds
+    next_drain_update = time.monotonic() + 30
     while time.monotonic() < drain_deadline:
         await _refresh_states(pool, docs)
         pending = [doc for doc in docs if doc["state"] not in {"completed", "failed"}]
         if not pending:
             return time.monotonic() - started, False
-        await asyncio.sleep(poll_interval_seconds)
+        now = time.monotonic()
+        if now >= next_drain_update:
+            remaining = max(0, int(drain_deadline - now))
+            print(
+                f"Step {step}: {len(pending)} task(s) remain; "
+                f"automatic timeout in {remaining}s if they do not finish.",
+                flush=True,
+            )
+            next_drain_update = now + 30
+        await asyncio.sleep(min(poll_interval_seconds, max(0, drain_deadline - now)))
 
     await _refresh_states(pool, docs)
     pending = [doc for doc in docs if doc["state"] not in {"completed", "failed"}]
@@ -620,7 +639,7 @@ async def _run(args: argparse.Namespace) -> int:
                         "llm_mode": "stub",
                         "steps": summaries,
                         "max_stable_parallel_docs": stable_parallelism,
-                        "cleanup": "deferred because Celery work may still be active",
+                        "cleanup": "runner will stop test workers, clear the isolated queue, and clean these synthetic records",
                     },
                     indent=2,
                 )

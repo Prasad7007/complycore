@@ -23,11 +23,12 @@ bash loadtest/run_worker_capacity.sh 2 4 6 8 10
 
 No `.env` file or pre-existing application/database/S3 stack is required. Docker and Compose are the only host prerequisites. Its image opts in to the migration-only dependencies needed to initialize the isolated database; normal worker images are unchanged. The fake LLM is guaranteed on for the isolated worker. Results are written to `loadtest/reports/worker-capacity-<run-id>.json`.
 
-The sweep tests every requested worker-container count and per-container Celery concurrency; total configured slots are `workers × concurrency`. Each JSON report records `worker_replicas`, `worker_concurrency`, `configured_max_parallel_tasks`, `max_stable_parallel_docs`, and each batch's `max_observed_parallel_docs`. The sweep estimates 3 GiB of RAM per added worker, checks host available RAM before scaling, and stops if available memory is below the 1.5 GiB reserve. Each worker container also has a 4 GiB memory limit by default. The drain wait is bounded to 5 minutes after a batch exceeds its 12-minute limit. Adjust the safety parameters only if you understand the host's available memory:
+The sweep tests every requested worker-container count and per-container Celery concurrency; total configured slots are `workers × concurrency`. Each JSON report records `worker_replicas`, `worker_concurrency`, `configured_max_parallel_tasks`, `max_stable_parallel_docs`, and each batch's `max_observed_parallel_docs`. The sweep estimates 3 GiB of RAM per added worker, checks host available RAM before scaling, and stops if available memory is below the 1.5 GiB reserve. Each worker container also has a 4 GiB memory limit by default. Each batch has a 5-minute pass limit and a 1-minute drain period by default. If tasks remain stuck, the script records the failed point, stops only the isolated benchmark workers, clears the isolated Redis queue, cleans that run's synthetic records, and moves to the next configuration. It prints progress every 30 seconds; let it run rather than pressing Ctrl+C if you want the sweep to continue. Adjust the safety parameters only if you understand the host's available memory:
 
 ```bash
 bash loadtest/run_worker_capacity.sh --workers 1 2 3 --concurrency 1 2 3 \
-  --steps 8 12 18 --min-available-mb 1536 --worker-memory-budget-mb 3072
+  --steps 8 12 18 --min-available-mb 1536 --worker-memory-budget-mb 3072 \
+  --max-wait-minutes 5 --drain-timeout-minutes 1
 ```
 
 The batch size must be at least the total configured task-slot count. `max_stable_parallel_docs` is the measured peak in batches that completed without failures inside the time limit; it is for this EC2 instance and synthetic workload, not a guaranteed production limit. Increase worker counts and concurrency cautiously.

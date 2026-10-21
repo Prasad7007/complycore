@@ -10,6 +10,8 @@ CONCURRENCY_LEVELS=(1 2)
 STEPS=(8 12 16)
 MIN_AVAILABLE_MB=1536
 WORKER_MEMORY_BUDGET_MB=3072
+MAX_WAIT_MINUTES=5
+DRAIN_TIMEOUT_MINUTES=1
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --workers)
@@ -66,6 +68,24 @@ while [[ $# -gt 0 ]]; do
       WORKER_MEMORY_BUDGET_MB="$1"
       shift
       ;;
+    --max-wait-minutes)
+      shift
+      if [[ $# -eq 0 || ! "$1" =~ ^[1-9][0-9]*$ ]]; then
+        echo "--max-wait-minutes requires a positive integer." >&2
+        exit 2
+      fi
+      MAX_WAIT_MINUTES="$1"
+      shift
+      ;;
+    --drain-timeout-minutes)
+      shift
+      if [[ $# -eq 0 || ! "$1" =~ ^[1-9][0-9]*$ ]]; then
+        echo "--drain-timeout-minutes requires a positive integer." >&2
+        exit 2
+      fi
+      DRAIN_TIMEOUT_MINUTES="$1"
+      shift
+      ;;
     -*)
       echo "Unknown option: $1" >&2
       echo "Usage: $0 [--workers COUNT [COUNT ...]] [--concurrency COUNT [COUNT ...]] [--steps DOCS [DOCS ...]] [--min-available-mb MB] [--worker-memory-budget-mb MB]" >&2
@@ -86,6 +106,12 @@ for workers in "${WORKER_COUNTS[@]}"; do
     exit 2
   fi
   previous_workers="${workers}"
+done
+for value in "${MAX_WAIT_MINUTES}" "${DRAIN_TIMEOUT_MINUTES}" "${MIN_AVAILABLE_MB}" "${WORKER_MEMORY_BUDGET_MB}"; do
+  if [[ ! "${value}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Wait, drain, and memory limits must be positive integers." >&2
+    exit 2
+  fi
 done
 previous_concurrency=0
 for concurrency in "${CONCURRENCY_LEVELS[@]}"; do
@@ -150,6 +176,15 @@ for workers in "${WORKER_COUNTS[@]}"; do
 
   for concurrency in "${CONCURRENCY_LEVELS[@]}"; do
     total_slots=$((workers * concurrency))
+    if ((workers > current_workers)); then
+      required_memory_mb=$((MIN_AVAILABLE_MB + (workers - current_workers) * WORKER_MEMORY_BUDGET_MB))
+      available_mb="$(available_memory_mb)"
+      if ((available_mb < required_memory_mb)); then
+        echo "Memory safety stop: ${available_mb} MiB available; need at least ${required_memory_mb} MiB before starting ${workers} worker container(s)." >&2
+        safety_stop=1
+        break
+      fi
+    fi
     echo "Benchmarking ${workers} worker container(s) x concurrency ${concurrency} = ${total_slots} task slot(s); batches=${STEPS[*]}"
     WORKER_CONCURRENCY="${concurrency}" "${COMPOSE[@]}" up -d --force-recreate \
       --scale "loadtest-worker=${workers}" loadtest-worker
@@ -185,10 +220,57 @@ for workers in "${WORKER_COUNTS[@]}"; do
     fi
 
     set +e
+    run_output="$(mktemp)"
     "${COMPOSE[@]}" run --rm worker-capacity \
-      python /loadtest/worker_capacity.py --workers "${workers}" --concurrency "${concurrency}" --steps "${STEPS[@]}"
-    status=$?
+      python /loadtest/worker_capacity.py --workers "${workers}" --concurrency "${concurrency}" \
+      --steps "${STEPS[@]}" --max-wait-minutes "${MAX_WAIT_MINUTES}" \
+      --drain-timeout-minutes "${DRAIN_TIMEOUT_MINUTES}" \
+      2>&1 | tee "${run_output}"
+    status=${PIPESTATUS[0]}
     set -e
+
+    if [[ "${status}" == "2" ]]; then
+      run_id="$(grep -Eo 'run_id=[0-9a-f]{32}' "${run_output}" | head -n 1 | cut -d= -f2 || true)"
+      if [[ -z "${run_id}" ]]; then
+        echo "Timed-out run did not report a run ID; cannot safely clean its isolated data." >&2
+        rm -f "${run_output}"
+        status=1
+        break
+      fi
+
+      echo "Timed-out configuration recorded as a failed capacity point (run_id=${run_id}); stopping its workers and continuing the sweep."
+      if ! "${COMPOSE[@]}" stop --timeout 5 loadtest-worker; then
+        echo "Could not stop benchmark workers safely; leaving isolated stack up." >&2
+        rm -f "${run_output}"
+        status=1
+        break
+      fi
+      running_workers="$("${COMPOSE[@]}" ps --status running -q loadtest-worker | wc -l)"
+      if ((running_workers != 0)); then
+        echo "Benchmark workers are still running; refusing to flush the isolated queue or delete test records." >&2
+        rm -f "${run_output}"
+        status=1
+        break
+      fi
+      if ! "${COMPOSE[@]}" exec -T loadtest-redis redis-cli FLUSHDB; then
+        echo "Could not clear the isolated load-test queue; refusing to continue." >&2
+        rm -f "${run_output}"
+        status=1
+        break
+      fi
+      if ! "${COMPOSE[@]}" run --rm worker-capacity \
+        python /loadtest/worker_capacity.py --cleanup-run-id "${run_id}"; then
+        echo "Could not clean timed-out run ${run_id}; refusing to continue." >&2
+        rm -f "${run_output}"
+        status=1
+        break
+      fi
+      rm -f "${run_output}"
+      current_workers=0
+      status=0
+      continue
+    fi
+    rm -f "${run_output}"
 
     if [[ "${status}" != "0" ]]; then
       echo "Capacity test failed at ${workers} worker(s) x concurrency ${concurrency}; inspect report and queue before continuing." >&2
