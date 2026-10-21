@@ -11,11 +11,11 @@ The runner initializes a fresh local test database and S3Mock bucket, creates a 
 From the repo root on EC2:
 
 ```bash
-# Sweep Celery concurrency 1 then 2, using document batches 4, 8, and 12.
+# Sweep 1, 2, then 3 worker containers, and concurrency 1 then 2 per container.
 bash loadtest/run_worker_capacity.sh
 
-# Test higher parallel-task limits and document batch sizes:
-bash loadtest/run_worker_capacity.sh --concurrency 1 2 3 4 --steps 8 12 16
+# Test higher worker counts, per-worker concurrency, and document batch sizes:
+bash loadtest/run_worker_capacity.sh --workers 1 2 3 --concurrency 1 2 3 --steps 8 12 18
 
 # Positional arguments still select document batch sizes:
 bash loadtest/run_worker_capacity.sh 2 4 6 8 10
@@ -23,7 +23,14 @@ bash loadtest/run_worker_capacity.sh 2 4 6 8 10
 
 No `.env` file or pre-existing application/database/S3 stack is required. Docker and Compose are the only host prerequisites. Its image opts in to the migration-only dependencies needed to initialize the isolated database; normal worker images are unchanged. The fake LLM is guaranteed on for the isolated worker. Results are written to `loadtest/reports/worker-capacity-<run-id>.json`.
 
-Each run configures one worker container with the selected Celery concurrency, then measures peak overlap of analysis start/completion intervals from audit events. The report includes `configured_max_parallel_tasks`, `max_stable_parallel_docs`, and each batch's `max_observed_parallel_docs`. `max_stable_parallel_docs` is the measured peak in batches that completed without failures inside the time limit; it is the result for this EC2 instance and synthetic workload, not a guaranteed production limit. The default sweep is limited to concurrency 1 and 2; test higher values cautiously because worker memory can increase substantially. The largest batch must be at least as large as the highest concurrency value.
+The sweep tests every requested worker-container count and per-container Celery concurrency; total configured slots are `workers × concurrency`. Each JSON report records `worker_replicas`, `worker_concurrency`, `configured_max_parallel_tasks`, `max_stable_parallel_docs`, and each batch's `max_observed_parallel_docs`. The sweep estimates 3 GiB of RAM per added worker, checks host available RAM before scaling, and stops if available memory is below the 1.5 GiB reserve. Each worker container also has a 4 GiB memory limit by default. The drain wait is bounded to 5 minutes after a batch exceeds its 12-minute limit. Adjust the safety parameters only if you understand the host's available memory:
+
+```bash
+bash loadtest/run_worker_capacity.sh --workers 1 2 3 --concurrency 1 2 3 \
+  --steps 8 12 18 --min-available-mb 1536 --worker-memory-budget-mb 3072
+```
+
+The batch size must be at least the total configured task-slot count. `max_stable_parallel_docs` is the measured peak in batches that completed without failures inside the time limit; it is for this EC2 instance and synthetic workload, not a guaranteed production limit. Increase worker counts and concurrency cautiously.
 
 If the run exits nonzero, the isolated services are left running, and there are no real-provider credentials configured. Inspect the run ID and worker logs, wait for any queued jobs to finish, then remove the test data and isolated containers:
 

@@ -42,6 +42,12 @@ def _parse_args() -> argparse.Namespace:
         help="Maximum simultaneous Celery document tasks for this run (default: 1).",
     )
     parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Worker container replicas used for this run (default: 1).",
+    )
+    parser.add_argument(
         "--steps",
         nargs="+",
         type=int,
@@ -57,8 +63,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--drain-timeout-minutes",
         type=float,
-        default=60,
-        help="After a step exceeds its max wait, allow this long to drain queued work safely.",
+        default=5,
+        help="After a step exceeds its max wait, allow this long to drain queued work safely (default: 5).",
     )
     parser.add_argument("--poll-interval-seconds", type=float, default=5)
     parser.add_argument(
@@ -502,10 +508,12 @@ async def _run(args: argparse.Namespace) -> int:
     assert_stub_allowed()
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL is missing from the running application environment.")
-    if args.concurrency < 1:
-        raise ValueError("--concurrency must be a positive integer.")
+    if args.concurrency < 1 or args.workers < 1:
+        raise ValueError("--concurrency and --workers must be positive integers.")
     if any(step < 1 for step in args.steps):
         raise ValueError("Every --steps value must be a positive integer.")
+    if max(args.steps) < args.workers * args.concurrency:
+        raise ValueError("The largest --steps value must be at least --workers multiplied by --concurrency.")
     if args.max_wait_minutes <= 0 or args.drain_timeout_minutes <= 0 or args.poll_interval_seconds <= 0:
         raise ValueError("Wait and polling durations must be positive.")
 
@@ -520,7 +528,8 @@ async def _run(args: argparse.Namespace) -> int:
     run_id = uuid.uuid4().hex
     print(
         f"Worker-only load test run_id={run_id}; no HTTP, token, or supplied PDF. "
-        f"configured maximum parallel tasks={args.concurrency}; "
+        f"worker containers={args.workers}; concurrency per worker={args.concurrency}; "
+        f"configured task slots={args.workers * args.concurrency}; "
         f"stub delay=1.5s per LLM call; batch steps={args.steps}",
         flush=True,
     )
@@ -605,7 +614,9 @@ async def _run(args: argparse.Namespace) -> int:
                         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
                         "run_id": run_id,
                         "mode": "direct Celery document-analysis worker capacity",
-                        "configured_max_parallel_tasks": args.concurrency,
+                        "worker_replicas": args.workers,
+                        "worker_concurrency": args.concurrency,
+                        "configured_max_parallel_tasks": args.workers * args.concurrency,
                         "llm_mode": "stub",
                         "steps": summaries,
                         "max_stable_parallel_docs": stable_parallelism,
@@ -622,7 +633,9 @@ async def _run(args: argparse.Namespace) -> int:
             "generated_at_utc": datetime.now(timezone.utc).isoformat(),
             "run_id": run_id,
             "mode": "direct Celery document-analysis worker capacity",
-            "configured_max_parallel_tasks": args.concurrency,
+            "worker_replicas": args.workers,
+            "worker_concurrency": args.concurrency,
+            "configured_max_parallel_tasks": args.workers * args.concurrency,
             "llm_mode": "stub",
             "stub_delay_seconds_per_call": 1.5,
             "max_stable_parallel_docs": stable_parallelism,
@@ -635,7 +648,7 @@ async def _run(args: argparse.Namespace) -> int:
         report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
         print(
             f"Maximum observed parallel documents in a stable batch: {stable_parallelism} "
-            f"(configured limit {args.concurrency})",
+            f"(configured task slots {args.workers * args.concurrency})",
             flush=True,
         )
         print(f"Report: {report_path}", flush=True)
